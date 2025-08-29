@@ -121,6 +121,16 @@ for epoch in range(1001):
     if epoch % 200 == 0:
         print(f"Epoch {epoch}, loss: {loss.item():.4f}")
 
-# 8) 모델 저장
-torch.save(model.state_dict(), "quizrec_with_time_db.pt")
-print("모델 저장 완료: quizrec_with_time_db.pt")
+# 저장할 폴더 경로를 미리 만들어 둡니다.
+SAVE_DIR = os.path.join("models", "trained_models")
+os.makedirs(SAVE_DIR, exist_ok=True) # 폴더가 없으면 자동으로 생성
+
+# 8) 모델 및 스케일러 저장 (경로 수정)
+MODEL_PATH = os.path.join(SAVE_DIR, "quizrec_with_time_db.pt")
+SCALER_PATH = os.path.join(SAVE_DIR, "time_scaler.pkl")
+
+torch.save(model.state_dict(), MODEL_PATH)
+print(f"모델 저장 완료: {MODEL_PATH}")
+
+joblib.dump(time_scaler, SCALER_PATH)
+print(f"스케일러 저장 완료: {SCALER_PATH}")

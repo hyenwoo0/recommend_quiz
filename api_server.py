@@ -74,33 +74,93 @@ quiz_idx = {q: i for i, q in enumerate(quizzes)}
 # --- 모델 정의 및 로드 ---
 
 class QuizRecModel(torch.nn.Module):
+    """
+    사용자, 퀴즈, 그리고 풀이 시간 정보를 바탕으로
+    사용자의 퀴즈 정답 확률을 예측하는 추천 모델
+    """
     def __init__(self, n_users, n_quizzes, emb_dim=16):
+        """
+        모델의 구조를 정의하고 필요한 레이어들을 초기화합니다.
+
+        Args:
+            n_users (int): 전체 사용자의 수. 임베딩 레이어의 크기를 결정합니다.
+            n_quizzes (int): 전체 퀴즈의 수. 임베딩 레이어의 크기를 결정합니다.
+            emb_dim (int, optional): 각 사용자/퀴즈를 표현할 벡터의 차원(크기).
+                                     기본값은 16입니다.
+        """
+        # 부모 클래스인 nn.Module의 생성자를 호출하여 PyTorch 모델로 초기화합니다.
         super().__init__()
+
+        # --- 1. 임베딩 레이어 정의 ---
+        # 각 사용자를 고유한 'emb_dim' 차원의 벡터로 변환하기 위한 조회 테이블(lookup table)입니다.
+        # 이 벡터는 사용자의 잠재적인 특성(예: 지식 수준, 강점)을 학습하게 됩니다.
         self.user_emb = torch.nn.Embedding(n_users, emb_dim)
+
+        # 각 퀴즈를 고유한 'emb_dim' 차원의 벡터로 변환하기 위한 조회 테이블입니다.
+        # 이 벡터는 퀴즈의 잠재적인 특성(예: 난이도, 카테고리)을 학습하게 됩니다.
         self.quiz_emb = torch.nn.Embedding(n_quizzes, emb_dim)
+
+        # --- 2. 완전 연결(Fully Connected) 레이어 정의 ---
+        # 임베딩된 정보와 추가 정보를 종합하여 최종 예측을 수행하는 신경망 부분입니다.
         self.fc = torch.nn.Sequential(
+            # 입력: 사용자 벡터(16) + 퀴즈 벡터(16) + 풀이 시간(1) = 33차원
+            # 출력: 32차원으로 정보를 요약합니다.
             torch.nn.Linear(emb_dim * 2 + 1, 32),
+
+            # 활성화 함수(ReLU): 모델에 비선형성을 추가하여 더 복잡한 관계를 학습하게 합니다.
             torch.nn.ReLU(),
+
+            # 입력: 32차원
+            # 출력: 최종 예측을 위해 1차원으로 정보를 압축합니다.
             torch.nn.Linear(32, 1),
+
+            # 활성화 함수(Sigmoid): 최종 출력값을 0과 1 사이의 '확률' 값으로 변환합니다.
+            # 이 값이 곧 모델이 예측하는 '정답 확률'이 됩니다.
             torch.nn.Sigmoid()
         )
 
     def forward(self, user, quiz, time):
+        """
+        실제 데이터가 입력되었을 때 모델의 계산 과정을 정의합니다. (순전파)
+
+        Args:
+            user (torch.Tensor): 사용자 ID(인덱스) 텐서.
+            quiz (torch.Tensor): 퀴즈 ID(인덱스) 텐서.
+            time (torch.Tensor): 정규화된 풀이 시간 텐서.
+
+        Returns:
+            torch.Tensor: 각 사용자-퀴즈 쌍에 대한 예측된 정답 확률 텐서.
+        """
+        # --- 1. 임베딩 벡터 조회 ---
+        # 입력된 사용자 ID에 해당하는 임베딩 벡터를 조회합니다.
         u = self.user_emb(user)
+        # 입력된 퀴즈 ID에 해당하는 임베딩 벡터를 조회합니다.
         q = self.quiz_emb(quiz)
+
+        # --- 2. 특징 벡터 결합 ---
+        # 사용자 벡터, 퀴즈 벡터, 풀이 시간 정보를 하나의 긴 벡터로 이어 붙입니다.
+        # dim=1은 각 샘플(행)별로 특징들을 옆으로 나란히 붙이라는 의미입니다.
         x = torch.cat([u, q, time], dim=1)
+
+        # --- 3. 최종 확률 예측 ---
+        # 결합된 벡터를 fc 레이어에 통과시켜 최종 정답 확률을 계산합니다.
+        # .squeeze(1)은 결과 텐서의 불필요한 차원(크기가 1인 차원)을 제거하여
+        # [batch_size, 1] 형태를 [batch_size] 형태로 만듭니다.
         return self.fc(x).squeeze(1)
 
 
 # 장치 설정, 모델 및 스케일러 로드
 device = torch.device("cpu")
-# (수정) n_users와 n_quizzes가 0일 경우를 대비한 예외 처리
+# gpu 사용 가능하면 cuda로 변경
+# n_users와 n_quizzes가 0일 경우를 대비한 예외 처리
 if not users or not quizzes:
     print("오류: 사용자 또는 퀴즈 데이터가 없어 모델을 로드할 수 없습니다.")
     model = None
     scaler = None
-else:
+    # model, scaler 변수를 None으로 설정해 비정상적인 종료를 막는다.
+else:   # 데이터가 정상적으로 있을 떄
     model = QuizRecModel(len(users), len(quizzes)).to(device)
+    # 데이터를 넣어 실체를 생성, .to(device) 생성된 모델을 지정된 장치로 이동
     try:
         model.load_state_dict(torch.load("quizrec_with_time_db.pt", map_location=device))
         model.eval()

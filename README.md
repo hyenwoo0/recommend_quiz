@@ -71,7 +71,7 @@ recommend_quiz/
 
 1.  **가상 환경 생성 및 활성화**
     ```bash
-    conda create -n recommend_env python=3.9
+    conda create -n recommend_env python=3.10.18
     conda activate recommend_env
     ```
 
